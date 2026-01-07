@@ -24,66 +24,78 @@ type RequestLine struct {
 	Method        string
 }
 
+const crlf = "\r\n"
+const bufferSize = 8
+
 var ErrorMalformedRequestLine = fmt.Errorf("Malformed request line")
 var ErrorUnsupportedHttpVersion = fmt.Errorf("Unsupported HTTP version")
+var ErrorTryingToReadDataInADoneState = fmt.Errorf("Trying to read data in a done state")
+var ErrorUnknownState = fmt.Errorf("Unknown state")
 
 func RequestFromReader(reader io.Reader) (*Request, error) {
-	request := &Request{}
-	request.state = StateInit
-
-	data := make([]byte, 1024)
-	dataLen := 0
+	request := &Request{state: StateInit}
+	data := make([]byte, bufferSize)
+	readToIndex := 0
 
 	for request.state != StateDone {
-		bytesRead, err := reader.Read(data[dataLen:])
+		if readToIndex == len(data) {
+			tempData := make([]byte, len(data)*2)
+			copy(tempData, data)
+			data = tempData
+		}
+
+		bytesRead, err := reader.Read(data[readToIndex:])
 
 		if err != nil {
 			return nil, err
 		}
 
-		dataLen += bytesRead
-		bytesConsumed, err := request.parse(data[:dataLen+bytesRead])
+		readToIndex += bytesRead
+		bytesConsumed, err := request.parse(data[:readToIndex])
 
 		if err != nil {
 			return nil, err
 		}
 
-		copy(data, data[bytesConsumed:dataLen])
-		dataLen -= bytesConsumed
+		copy(data, data[bytesConsumed:readToIndex])
+		readToIndex -= bytesConsumed
 	}
 
 	return request, nil
 }
 
 func (r *Request) parse(data []byte) (int, error) {
-	totalBytesConsumed := 0
-
-	for r.state != StateDone {
-		requestLine, bytesConsumed, err := parseRequestLine(string(data[totalBytesConsumed:]))
-
-		if err != nil {
-			return 0, err
-		}
-
-		if bytesConsumed == 0 {
-			break
-		}
-
-		r.RequestLine = *requestLine
-		totalBytesConsumed += bytesConsumed
-		r.state = StateDone
+	if r.state == StateDone {
+		return 0, ErrorTryingToReadDataInADoneState
 	}
 
-	return totalBytesConsumed, nil
+	if r.state != StateInit {
+		return 0, ErrorUnknownState
+	}
+
+	requestLine, bytesConsumed, err := parseRequestLine(string(data[:]))
+
+	if err != nil {
+		return 0, err
+	}
+
+	if bytesConsumed == 0 {
+		return 0, nil
+	}
+
+	r.RequestLine = *requestLine
+	r.state = StateDone
+
+	return bytesConsumed, nil
 }
 
 func parseRequestLine(str string) (*RequestLine, int, error) {
-	if !strings.Contains(str, "\r\n") {
+	if !strings.Contains(str, crlf) {
 		return nil, 0, nil
 	}
 
-	lines := strings.Split(str, "\r\n")
-	bytesConsumed := len(lines[0]) + len("\r\n")
+	lines := strings.Split(str, crlf)
+	bytesConsumed := len(lines[0]) + len(crlf)
 
 	requestLine := lines[0]
 	parts := strings.Split(requestLine, " ")
