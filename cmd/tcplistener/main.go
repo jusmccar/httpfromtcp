@@ -2,70 +2,35 @@ package main
 
 import (
 	"fmt"
-	"io"
 	"log"
 	"net"
-	"strings"
+
+	"httpfromtcp/internal/request"
 )
 
 func main() {
 	listener, err := net.Listen("tcp", ":42069")
 
 	if err != nil {
-		log.Fatal("Error: ", err)
+		log.Fatal(err)
 	}
 
 	for {
 		conn, err := listener.Accept()
 
 		if err != nil {
-			log.Fatal("Error: ", err)
+			log.Fatal(err)
 		}
 
-		for line := range getLinesChannel(conn) {
-			fmt.Printf("read: %s\n", line)
+		req, err := request.RequestFromReader(conn)
+
+		if err != nil {
+			log.Fatal(err)
 		}
+
+		fmt.Printf("Request line:\n")
+		fmt.Printf("- Method: %s\n", req.RequestLine.Method)
+		fmt.Printf("- Target: %s\n", req.RequestLine.RequestTarget)
+		fmt.Printf("- Version: %s\n", req.RequestLine.HttpVersion)
 	}
-}
-
-func getLinesChannel(f io.ReadCloser) <-chan string {
-	out := make(chan string, 1)
-
-	go func() {
-		defer f.Close()
-		defer close(out)
-
-		str := ""
-
-		for {
-			data := make([]byte, 8)
-			n, err := f.Read(data)
-
-			if err != nil {
-				if err == io.EOF {
-					if str != "" {
-						out <- str
-					}
-
-					break
-				}
-
-				log.Fatal("Error reading file:", err)
-			}
-
-			text := string(data[:n])
-			lines := strings.Split(text, "\n")
-
-			for i, line := range lines {
-				str += line
-
-				if i < len(lines)-1 {
-					out <- str
-					str = ""
-				}
-			}
-		}
-	}()
-
-	return out
 }
