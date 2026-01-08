@@ -3,6 +3,7 @@ package headers
 import (
 	"bytes"
 	"fmt"
+	"strings"
 )
 
 type Headers map[string]string
@@ -10,6 +11,8 @@ type Headers map[string]string
 var crlf = []byte("\r\n")
 
 var ErrorMalformedHeader = fmt.Errorf("Malformed header")
+var ErrorInvalidFieldName = fmt.Errorf("Invalid field name")
+var ErrorDuplicateFieldName = fmt.Errorf("Duplicate field name")
 
 func NewHeaders() Headers {
 	return Headers{}
@@ -49,10 +52,45 @@ func (h Headers) Parse(data []byte) (n int, done bool, err error) {
 	}
 
 	fieldName := fieldNameColon[:fieldNameColonLastInd]
+
+	if !isValidFieldName(fieldName) {
+		return n, done, ErrorInvalidFieldName
+	}
+
+	if isDuplicateFieldName(fieldName, h) {
+		return n, done, ErrorDuplicateFieldName
+	}
+
+	fieldNameLower := strings.ToLower(fieldName)
 	fieldValue := string(headerParts[1])
 
-	h[fieldName] = fieldValue
+	h[fieldNameLower] = fieldValue
 	n = len(parts[0]) + len(crlf)
 
 	return n, done, err
+}
+
+func isValidFieldName(s string) bool {
+	for _, c := range s {
+		if !((c >= 'A' && c <= 'Z') ||
+			(c >= 'a' && c <= 'z') ||
+			(c >= '0' && c <= '9') ||
+			c == '!' || c == '#' || c == '$' || c == '%' || c == '&' ||
+			c == '\'' || c == '*' || c == '+' || c == '-' || c == '.' ||
+			c == '^' || c == '_' || c == '`' || c == '|' || c == '~') {
+			return false
+		}
+	}
+
+	return true
+}
+
+func isDuplicateFieldName(s string, h Headers) bool {
+	for k := range h {
+		if strings.EqualFold(k, s) {
+			return true
+		}
+	}
+
+	return false
 }
