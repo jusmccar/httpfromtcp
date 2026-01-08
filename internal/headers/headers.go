@@ -3,15 +3,16 @@ package headers
 import (
 	"bytes"
 	"fmt"
-	"strings"
 )
 
 type Headers map[string]string
 
 var crlf = []byte("\r\n")
 
-var ErrorMalformedHeader = fmt.Errorf("Malformed header")
-var ErrorInvalidFieldName = fmt.Errorf("Invalid field name")
+var (
+	ErrorMalformedHeader  = fmt.Errorf("Malformed header")
+	ErrorInvalidFieldName = fmt.Errorf("Invalid field name")
+)
 
 func NewHeaders() Headers {
 	return Headers{}
@@ -27,52 +28,48 @@ func (h Headers) Parse(data []byte) (n int, done bool, err error) {
 	}
 
 	parts := bytes.Split(data, crlf)
+	header := parts[0]
 
-	if len(parts) == 0 {
-		return n, done, ErrorMalformedHeader
-	}
-
-	if bytes.Equal(parts[0], crlf) {
+	if len(header) == 0 {
 		done = true
 		return n, done, nil
 	}
 
-	headerParts := bytes.Split(parts[0], []byte(" "))
+	fieldNameBytes, fieldValueBytes, found := bytes.Cut(header, []byte(":"))
 
-	if len(headerParts) != 2 {
+	if !found {
 		return n, done, ErrorMalformedHeader
 	}
 
-	fieldNameColon := string(headerParts[0])
-	fieldNameColonLastInd := len(fieldNameColon) - 1
-
-	if fieldNameColon[fieldNameColonLastInd] != ':' {
-		return n, done, ErrorMalformedHeader
-	}
-
-	fieldName := fieldNameColon[:fieldNameColonLastInd]
-
-	if !isValidFieldName(fieldName) {
+	if bytes.HasSuffix(fieldNameBytes, []byte(" ")) {
 		return n, done, ErrorInvalidFieldName
 	}
 
-	fieldNameLower := strings.ToLower(fieldName)
-	fieldValue := string(headerParts[1])
-	_, exists := h[fieldNameLower]
+	fieldNameBytes = bytes.TrimSpace(fieldNameBytes)
+	fieldValueBytes = bytes.TrimSpace(fieldValueBytes)
 
-	if exists {
-		h[fieldNameLower] += ", " + fieldValue
-	} else {
-		h[fieldNameLower] = fieldValue
+	if !isValidFieldName(fieldNameBytes) {
+		return n, done, ErrorInvalidFieldName
 	}
 
-	n = len(parts[0]) + len(crlf)
+	fieldName := string(bytes.ToLower(fieldNameBytes))
+	fieldValue := string(fieldValueBytes)
+
+	_, exists := h[fieldName]
+
+	if exists {
+		h[fieldName] += ", " + fieldValue
+	} else {
+		h[fieldName] = fieldValue
+	}
+
+	n = len(header) + len(crlf)
 
 	return n, done, err
 }
 
-func isValidFieldName(s string) bool {
-	for _, c := range s {
+func isValidFieldName(b []byte) bool {
+	for _, c := range b {
 		if !((c >= 'A' && c <= 'Z') ||
 			(c >= 'a' && c <= 'z') ||
 			(c >= '0' && c <= '9') ||

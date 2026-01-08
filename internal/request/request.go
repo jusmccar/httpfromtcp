@@ -4,17 +4,21 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"httpfromtcp/internal/headers"
 )
 
 type ParserState int
 
 const (
-	StateInit ParserState = 0
-	StateDone ParserState = 1
+	requestStateInit ParserState = iota
+	requestStateDone
+	requestStateParsingHeaders
 )
 
 type Request struct {
 	RequestLine RequestLine
+	Headers     headers.Headers
 	state       ParserState
 }
 
@@ -27,17 +31,22 @@ type RequestLine struct {
 const crlf = "\r\n"
 const bufferSize = 8
 
-var ErrorMalformedRequestLine = fmt.Errorf("Malformed request line")
-var ErrorUnsupportedHttpVersion = fmt.Errorf("Unsupported HTTP version")
-var ErrorTryingToReadDataInADoneState = fmt.Errorf("Trying to read data in a done state")
-var ErrorUnknownState = fmt.Errorf("Unknown state")
+var (
+	ErrorMalformedRequestLine   = fmt.Errorf("Malformed request line")
+	ErrorUnsupportedHttpVersion = fmt.Errorf("Unsupported HTTP version")
+	ErrorUnknownState           = fmt.Errorf("Unknown state")
+)
 
 func RequestFromReader(reader io.Reader) (*Request, error) {
-	request := &Request{state: StateInit}
+	r := &Request{
+		state:   requestStateInit,
+		Headers: headers.NewHeaders(),
+	}
+
 	data := make([]byte, bufferSize)
 	readToIndex := 0
 
-	for request.state != StateDone {
+	for r.state != requestStateDone {
 		if readToIndex == len(data) {
 			tempData := make([]byte, len(data)*2)
 			copy(tempData, data)
@@ -47,11 +56,13 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 		bytesRead, err := reader.Read(data[readToIndex:])
 
 		if err != nil {
-			return nil, err
+			if err != io.EOF || readToIndex == 0 {
+				return nil, err
+			}
 		}
 
 		readToIndex += bytesRead
-		bytesConsumed, err := request.Parse(data[:readToIndex])
+		bytesConsumed, err := r.parse(data[:readToIndex])
 
 		if err != nil {
 			return nil, err
@@ -61,32 +72,65 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 		readToIndex -= bytesConsumed
 	}
 
-	return request, nil
+	return r, nil
 }
 
-func (r *Request) Parse(data []byte) (int, error) {
-	if r.state == StateDone {
-		return 0, ErrorTryingToReadDataInADoneState
+func (r *Request) parse(data []byte) (int, error) {
+	totalBytesParsed := 0
+
+	for r.state != requestStateDone {
+		n, err := r.parseSingle(data[totalBytesParsed:])
+
+		if err != nil {
+			return 0, err
+		}
+
+		if n == 0 {
+			break
+		}
+
+		totalBytesParsed += n
 	}
 
-	if r.state != StateInit {
+	return totalBytesParsed, nil
+}
+
+func (r *Request) parseSingle(data []byte) (int, error) {
+	switch r.state {
+	case requestStateInit:
+		requestLine, bytesConsumed, err := parseRequestLine(string(data))
+
+		if err != nil {
+			return 0, err
+		}
+
+		if bytesConsumed == 0 {
+			return 0, nil
+		}
+
+		r.RequestLine = *requestLine
+		r.state = requestStateParsingHeaders
+		return bytesConsumed, nil
+
+	case requestStateParsingHeaders:
+		bytesConsumed, done, err := r.Headers.Parse(data)
+
+		if err != nil {
+			return 0, err
+		}
+
+		if done {
+			r.state = requestStateDone
+		}
+
+		return bytesConsumed, nil
+
+	case requestStateDone:
+		return 0, nil
+
+	default:
 		return 0, ErrorUnknownState
 	}
-
-	requestLine, bytesConsumed, err := parseRequestLine(string(data[:]))
-
-	if err != nil {
-		return 0, err
-	}
-
-	if bytesConsumed == 0 {
-		return 0, nil
-	}
-
-	r.RequestLine = *requestLine
-	r.state = StateDone
-
-	return bytesConsumed, nil
 }
 
 func parseRequestLine(str string) (*RequestLine, int, error) {
@@ -95,10 +139,9 @@ func parseRequestLine(str string) (*RequestLine, int, error) {
 	}
 
 	lines := strings.Split(str, crlf)
-	bytesConsumed := len(lines[0]) + len(crlf)
-
-	requestLine := lines[0]
-	parts := strings.Split(requestLine, " ")
+	request := lines[0]
+	bytesConsumed := len(request) + len(crlf)
+	parts := strings.Split(request, " ")
 
 	if len(parts) != 3 {
 		return nil, 0, ErrorMalformedRequestLine
@@ -118,11 +161,11 @@ func parseRequestLine(str string) (*RequestLine, int, error) {
 		return nil, 0, ErrorUnsupportedHttpVersion
 	}
 
-	requestLineStruct := &RequestLine{
+	requestLine := &RequestLine{
 		Method:        method,
 		RequestTarget: requestTarget,
 		HttpVersion:   httpVersion,
 	}
 
-	return requestLineStruct, bytesConsumed, nil
+	return requestLine, bytesConsumed, nil
 }
