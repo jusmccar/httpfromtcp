@@ -12,7 +12,6 @@ var crlf = []byte("\r\n")
 
 var ErrorMalformedHeader = fmt.Errorf("Malformed header")
 var ErrorInvalidFieldName = fmt.Errorf("Invalid field name")
-var ErrorDuplicateFieldName = fmt.Errorf("Duplicate field name")
 
 func NewHeaders() Headers {
 	return Headers{}
@@ -57,14 +56,16 @@ func (h Headers) Parse(data []byte) (n int, done bool, err error) {
 		return n, done, ErrorInvalidFieldName
 	}
 
-	if isDuplicateFieldName(fieldName, h) {
-		return n, done, ErrorDuplicateFieldName
-	}
-
 	fieldNameLower := strings.ToLower(fieldName)
 	fieldValue := string(headerParts[1])
+	_, exists := h[fieldNameLower]
 
-	h[fieldNameLower] = fieldValue
+	if exists {
+		h[fieldNameLower] += ", " + fieldValue
+	} else {
+		h[fieldNameLower] = fieldValue
+	}
+
 	n = len(parts[0]) + len(crlf)
 
 	return n, done, err
@@ -83,14 +84,4 @@ func isValidFieldName(s string) bool {
 	}
 
 	return true
-}
-
-func isDuplicateFieldName(s string, h Headers) bool {
-	for k := range h {
-		if strings.EqualFold(k, s) {
-			return true
-		}
-	}
-
-	return false
 }
