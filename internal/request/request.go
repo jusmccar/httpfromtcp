@@ -51,7 +51,7 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 		}
 
 		readToIndex += bytesRead
-		bytesConsumed, err := request.parse(data[:readToIndex])
+		bytesConsumed, err := request.Parse(data[:readToIndex])
 
 		if err != nil {
 			return nil, err
@@ -64,7 +64,7 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 	return request, nil
 }
 
-func (r *Request) parse(data []byte) (int, error) {
+func (r *Request) Parse(data []byte) (int, error) {
 	if r.state == StateDone {
 		return 0, ErrorTryingToReadDataInADoneState
 	}
