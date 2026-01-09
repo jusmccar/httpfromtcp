@@ -12,8 +12,8 @@ import (
 )
 
 type Server struct {
-	listener net.Listener
 	handler  Handler
+	listener net.Listener
 	closed   atomic.Bool
 }
 
@@ -25,16 +25,15 @@ type HandlerError struct {
 }
 
 func Serve(port int, handler Handler) (*Server, error) {
-	addr := fmt.Sprintf(":%d", port)
-	listener, err := net.Listen("tcp", addr)
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 
 	if err != nil {
 		return nil, err
 	}
 
 	s := &Server{
-		listener: listener,
 		handler:  handler,
+		listener: listener,
 	}
 
 	go s.listen()
@@ -52,11 +51,11 @@ func (s *Server) listen() {
 	for {
 		conn, err := s.listener.Accept()
 
-		if s.closed.Load() {
-			return
-		}
-
 		if err != nil {
+			if s.closed.Load() {
+				return
+			}
+
 			continue
 		}
 
@@ -70,44 +69,35 @@ func (s *Server) handle(conn net.Conn) {
 	req, err := request.RequestFromReader(conn)
 
 	if err != nil {
-		writeHandlerError(conn, &HandlerError{
+		hErr := &HandlerError{
 			StatusCode: response.StatusCodeBadRequest,
-			Message:    "Bad Request\n",
-		})
+			Message:    err.Error(),
+		}
 
+		hErr.Write(conn)
 		return
 	}
 
-	var w bytes.Buffer
-	handlerError := s.handler(&w, req)
+	buf := bytes.NewBuffer([]byte{})
+	hErr := s.handler(buf, req)
 
-	if handlerError != nil {
-		writeHandlerError(conn, handlerError)
-
+	if hErr != nil {
+		hErr.Write(conn)
 		return
 	}
 
-	err = response.WriteStatusLine(conn, response.StatusCodeOK)
-
-	if err != nil {
-		return
-	}
-
-	headers := response.GetDefaultHeaders(w.Len())
-	err = response.WriteHeaders(conn, headers)
-
-	if err != nil {
-		return
-	}
-
-	fmt.Fprintf(conn, "%s", w.Bytes())
+	b := buf.Bytes()
+	response.WriteStatusLine(conn, response.StatusCodeOK)
+	headers := response.GetDefaultHeaders(len(b))
+	response.WriteHeaders(conn, headers)
+	conn.Write(b)
 }
 
-func writeHandlerError(w io.Writer, handlerError *HandlerError) {
-	headers := response.GetDefaultHeaders(len(handlerError.Message))
+func (hErr HandlerError) Write(w io.Writer) {
+	headers := response.GetDefaultHeaders(len(hErr.Message))
 
-	response.WriteStatusLine(w, handlerError.StatusCode)
+	response.WriteStatusLine(w, hErr.StatusCode)
 	response.WriteHeaders(w, headers)
 
-	fmt.Fprintf(w, "%s", handlerError.Message)
+	fmt.Fprintf(w, "%s", hErr.Message)
 }
