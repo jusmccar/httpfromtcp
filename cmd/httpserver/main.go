@@ -1,7 +1,7 @@
 package main
 
 import (
-	"io"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -15,24 +15,26 @@ import (
 const port = 42069
 
 func main() {
-	handler := func(w io.Writer, req *request.Request) *server.HandlerError {
+	handler := func(w *response.Writer, req *request.Request) {
+		status := response.StatusCodeOK
+		message := response.MessageOK
+
 		switch req.RequestLine.RequestTarget {
 		case "/yourproblem":
-			return &server.HandlerError{
-				StatusCode: response.StatusCodeBadRequest,
-				Message:    "Your problem is not my problem\n",
-			}
-
+			status = response.StatusCodeBadRequest
+			message = response.MessageBadRequest
 		case "/myproblem":
-			return &server.HandlerError{
-				StatusCode: response.StatusCodeInternalServerError,
-				Message:    "Woopsie, my bad\n",
-			}
-
-		default:
-			_, _ = io.WriteString(w, "All good, frfr\n")
-			return nil
+			status = response.StatusCodeInternalServerError
+			message = response.MessageInternalServerError
 		}
+
+		headers := response.GetDefaultHeaders(0)
+		headers.Set("Content-Type", "text/html")
+		headers.Set("Content-Length", fmt.Sprintf("%d", len(message)))
+
+		w.WriteStatusLine(status)
+		w.WriteHeaders(headers)
+		w.WriteBody([]byte(message))
 	}
 
 	server, err := server.Serve(port, handler)

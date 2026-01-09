@@ -1,9 +1,7 @@
 package server
 
 import (
-	"bytes"
 	"fmt"
-	"io"
 	"net"
 	"sync/atomic"
 
@@ -17,7 +15,7 @@ type Server struct {
 	closed   atomic.Bool
 }
 
-type Handler func(w io.Writer, req *request.Request) *HandlerError
+type Handler func(w *response.Writer, req *request.Request)
 
 type HandlerError struct {
 	StatusCode response.StatusCode
@@ -66,38 +64,16 @@ func (s *Server) listen() {
 func (s *Server) handle(conn net.Conn) {
 	defer conn.Close()
 
+	writer := response.NewWriter(conn)
+	headers := response.GetDefaultHeaders(0)
 	req, err := request.RequestFromReader(conn)
 
 	if err != nil {
-		hErr := &HandlerError{
-			StatusCode: response.StatusCodeBadRequest,
-			Message:    err.Error(),
-		}
+		writer.WriteStatusLine(response.StatusCodeBadRequest)
+		writer.WriteHeaders(headers)
 
-		hErr.Write(conn)
 		return
 	}
 
-	buf := bytes.NewBuffer([]byte{})
-	hErr := s.handler(buf, req)
-
-	if hErr != nil {
-		hErr.Write(conn)
-		return
-	}
-
-	b := buf.Bytes()
-	response.WriteStatusLine(conn, response.StatusCodeOK)
-	headers := response.GetDefaultHeaders(len(b))
-	response.WriteHeaders(conn, headers)
-	conn.Write(b)
-}
-
-func (hErr HandlerError) Write(w io.Writer) {
-	headers := response.GetDefaultHeaders(len(hErr.Message))
-
-	response.WriteStatusLine(w, hErr.StatusCode)
-	response.WriteHeaders(w, headers)
-
-	fmt.Fprintf(w, "%s", hErr.Message)
+	s.handler(&writer, req)
 }
