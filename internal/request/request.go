@@ -3,6 +3,7 @@ package request
 import (
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 
 	"httpfromtcp/internal/headers"
@@ -14,11 +15,13 @@ const (
 	requestStateInit ParserState = iota
 	requestStateDone
 	requestStateParsingHeaders
+	requestStateParsingBody
 )
 
 type Request struct {
 	RequestLine RequestLine
 	Headers     headers.Headers
+	Body        Body
 	state       ParserState
 }
 
@@ -28,12 +31,15 @@ type RequestLine struct {
 	Method        string
 }
 
+type Body []byte
+
 const crlf = "\r\n"
 const bufferSize = 8
 
 var (
 	ErrorMalformedRequestLine   = fmt.Errorf("Malformed request line")
 	ErrorUnsupportedHttpVersion = fmt.Errorf("Unsupported HTTP version")
+	ErrorMalformedBody          = fmt.Errorf("Malformed body")
 	ErrorUnknownState           = fmt.Errorf("Unknown state")
 )
 
@@ -120,10 +126,38 @@ func (r *Request) parseSingle(data []byte) (int, error) {
 		}
 
 		if done {
-			r.state = requestStateDone
+			r.state = requestStateParsingBody
+
+			// parse final crlf
+			return 2, nil
 		}
 
 		return bytesConsumed, nil
+
+	case requestStateParsingBody:
+		contentLengthStr := r.Headers.Get("Content-Length")
+
+		if contentLengthStr == "" {
+			r.state = requestStateDone
+
+			return 0, nil
+		}
+
+		r.Body = append(r.Body, data...)
+
+		contentLength, err := strconv.Atoi(contentLengthStr)
+
+		if err != nil {
+			return 0, err
+		}
+
+		if len(r.Body) > contentLength {
+			return 0, ErrorMalformedBody
+		} else if len(r.Body) == contentLength {
+			r.state = requestStateDone
+		}
+
+		return len(data), nil
 
 	case requestStateDone:
 		return 0, nil
