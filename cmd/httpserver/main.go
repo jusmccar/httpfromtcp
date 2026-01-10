@@ -74,6 +74,23 @@ func main() {
 				w.WriteTrailers(h)
 
 			}
+		} else if strings.HasPrefix(req.RequestLine.RequestTarget, "/video") {
+			contents, err := os.ReadFile("./assets/vim.mp4")
+
+			if err != nil {
+				status = response.StatusCodeInternalServerError
+				message = response.MessageInternalServerError
+			} else {
+				message = response.Message(contents)
+
+				h.Set("Content-Type", "video/mp4")
+			}
+
+			h.Set("Content-Length", fmt.Sprintf("%d", len(message)))
+
+			w.WriteStatusLine(status)
+			w.WriteHeaders(h)
+			w.WriteBody([]byte(message))
 		} else {
 			if strings.HasPrefix(req.RequestLine.RequestTarget, "/yourproblem") {
 				status = response.StatusCodeBadRequest
