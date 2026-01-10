@@ -3,6 +3,7 @@ package response
 import (
 	"fmt"
 	"io"
+	"strings"
 
 	"httpfromtcp/internal/headers"
 )
@@ -55,8 +56,8 @@ var (
 	ErrorUnknownStatusCode = fmt.Errorf("Unknown Status Code")
 )
 
-func NewWriter(writer io.Writer) Writer {
-	return Writer{writer: writer}
+func NewWriter(w io.Writer) Writer {
+	return Writer{writer: w}
 }
 
 func GetDefaultHeaders(contentLen int) headers.Headers {
@@ -84,8 +85,8 @@ func (w *Writer) WriteStatusLine(statusCode StatusCode) error {
 	return nil
 }
 
-func (w *Writer) WriteHeaders(headers headers.Headers) error {
-	for key, value := range headers {
+func (w *Writer) WriteHeaders(h headers.Headers) error {
+	for key, value := range h {
 		fmt.Fprintf(w.writer, "%s: %s\r\n", key, value)
 	}
 
@@ -107,7 +108,19 @@ func (w *Writer) WriteChunkedBody(p []byte) (int, error) {
 }
 
 func (w *Writer) WriteChunkedBodyDone() (int, error) {
-	n, err := fmt.Fprintf(w.writer, "0\r\n\r\n")
+	n, err := fmt.Fprintf(w.writer, "0\r\n")
 
 	return n, err
+}
+
+func (w *Writer) WriteTrailers(h headers.Headers) error {
+	trailers := strings.SplitSeq(h.Get("Trailer"), ", ")
+
+	for trailer := range trailers {
+		fmt.Fprintf(w.writer, "%s: %s\r\n", trailer, h.Get(trailer))
+	}
+
+	fmt.Fprintf(w.writer, "\r\n")
+
+	return nil
 }

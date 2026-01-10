@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"log"
 	"net/http"
@@ -20,7 +21,7 @@ func main() {
 	handler := func(w *response.Writer, req *request.Request) {
 		status := response.StatusCodeOK
 		message := response.MessageOK
-		headers := response.GetDefaultHeaders(0)
+		h := response.GetDefaultHeaders(0)
 		after, found := strings.CutPrefix(req.RequestLine.RequestTarget, "/httpbin")
 
 		if found {
@@ -30,21 +31,24 @@ func main() {
 				status = response.StatusCodeInternalServerError
 				message = response.MessageInternalServerError
 
-				headers.Set("Content-Length", fmt.Sprintf("%d", len(message)))
+				h.Set("Content-Length", fmt.Sprintf("%d", len(message)))
 
 				w.WriteStatusLine(status)
-				w.WriteHeaders(headers)
+				w.WriteHeaders(h)
 				w.WriteBody([]byte(message))
 			} else {
 				defer resp.Body.Close()
 
-				headers.Delete("Content-Length")
-				headers.Set("Transfer-Encoding", "chunked")
+				h.Delete("Content-Length")
+				h.Set("Transfer-Encoding", "chunked")
+				h.Append("Trailer", "X-Content-SHA256")
+				h.Append("Trailer", "X-Content-Length")
 
 				w.WriteStatusLine(status)
-				w.WriteHeaders(headers)
+				w.WriteHeaders(h)
 
 				data := make([]byte, 1024)
+				fullData := []byte{}
 
 				for {
 					n, err := resp.Body.Read(data)
@@ -52,6 +56,8 @@ func main() {
 					if n > 0 {
 						w.WriteChunkedBody(data[:n])
 					}
+
+					fullData = append(fullData, data[:n]...)
 
 					if err != nil {
 						break
@@ -61,6 +67,12 @@ func main() {
 				}
 
 				w.WriteChunkedBodyDone()
+
+				h.Set("X-Content-SHA256", fmt.Sprintf("%x", sha256.Sum256(fullData)))
+				h.Set("X-Content-Length", fmt.Sprintf("%d", len(fullData)))
+
+				w.WriteTrailers(h)
+
 			}
 		} else {
 			if strings.HasPrefix(req.RequestLine.RequestTarget, "/yourproblem") {
@@ -71,11 +83,11 @@ func main() {
 				message = response.MessageInternalServerError
 			}
 
-			headers.Set("Content-Type", "text/html")
-			headers.Set("Content-Length", fmt.Sprintf("%d", len(message)))
+			h.Set("Content-Type", "text/html")
+			h.Set("Content-Length", fmt.Sprintf("%d", len(message)))
 
 			w.WriteStatusLine(status)
-			w.WriteHeaders(headers)
+			w.WriteHeaders(h)
 			w.WriteBody([]byte(message))
 		}
 	}

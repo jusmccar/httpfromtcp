@@ -20,15 +20,29 @@ func NewHeaders() Headers {
 }
 
 func (h Headers) Get(key string) string {
-	return h[strings.ToLower(key)]
+	key = strings.ToLower(key)
+	return h[key]
 }
 
 func (h Headers) Set(key string, value string) {
-	h[strings.ToLower(key)] = value
+	key = strings.ToLower(key)
+	h[key] = value
+}
+
+func (h Headers) Append(key string, value string) {
+	key = strings.ToLower(key)
+	_, exists := h[key]
+
+	if exists {
+		h[key] += ", " + value
+	} else {
+		h[key] = value
+	}
 }
 
 func (h Headers) Delete(key string) {
-	delete(h, strings.ToLower(key))
+	key = strings.ToLower(key)
+	delete(h, key)
 }
 
 func (h Headers) Parse(data []byte) (n int, done bool, err error) {
@@ -65,16 +79,10 @@ func (h Headers) Parse(data []byte) (n int, done bool, err error) {
 		return n, done, ErrorInvalidFieldName
 	}
 
-	fieldName := string(bytes.ToLower(fieldNameBytes))
+	fieldName := string(fieldNameBytes)
 	fieldValue := string(fieldValueBytes)
 
-	_, exists := h[fieldName]
-
-	if exists {
-		h[fieldName] += ", " + fieldValue
-	} else {
-		h[fieldName] = fieldValue
-	}
+	h.Append(fieldName, fieldValue)
 
 	n = len(header) + len(crlf)
 
