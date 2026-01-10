@@ -62,9 +62,9 @@ func NewWriter(writer io.Writer) Writer {
 func GetDefaultHeaders(contentLen int) headers.Headers {
 	headers := headers.NewHeaders()
 
-	headers["content-length"] = fmt.Sprintf("%d", contentLen)
-	headers["connection"] = "close"
-	headers["content-type"] = "text/plain"
+	headers.Set("Content-Length", fmt.Sprintf("%d", contentLen))
+	headers.Set("Connection", "close")
+	headers.Set("Content-Type", "text/plain")
 
 	return headers
 }
@@ -85,9 +85,10 @@ func (w *Writer) WriteStatusLine(statusCode StatusCode) error {
 }
 
 func (w *Writer) WriteHeaders(headers headers.Headers) error {
-	fmt.Fprintf(w.writer, "Content-Length: %s\r\n", headers.Get("Content-Length"))
-	fmt.Fprintf(w.writer, "Connection: %s\r\n", headers.Get("Connection"))
-	fmt.Fprintf(w.writer, "Content-Type: %s\r\n", headers.Get("Content-Type"))
+	for key, value := range headers {
+		fmt.Fprintf(w.writer, "%s: %s\r\n", key, value)
+	}
+
 	fmt.Fprintf(w.writer, "\r\n")
 
 	return nil
